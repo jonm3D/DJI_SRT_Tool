@@ -13,3 +13,5 @@ When you run the script on a DJI SRT file, it generates the following outputs:
 - **GeoJSON File:** Represents the flight path as a LineString.
 - **Summary PNG:** A visualization of the flight path with a top-down view+satellite basemap and a 3D oblique view.
 
+To Do
+- Add output flags

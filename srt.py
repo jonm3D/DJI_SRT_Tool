@@ -14,6 +14,7 @@ import matplotlib.colors as mcolors
 from pathlib import Path
 import imageio.v2 as imageio
 from PIL import Image
+from tqdm import tqdm
 
 def parse_srt_file(srt_file):
     data = []
@@ -142,13 +143,15 @@ def plot_flight_summary(gdf, output_dir, srt_file, data):
     ctx.add_basemap(ax_top, crs=gdf.crs.to_string(), source=ctx.providers.Esri.WorldImagery, reset_extent=False, attribution="")
     ax_top.set_xlim(xmin, xmax)
     ax_top.set_ylim(ymin, ymax)
-    ax_top.scatter(start_point.x, start_point.y, color='green', s=100, label='Start', marker='x')
-    ax_top.scatter(end_point.x, end_point.y, color='red', s=100, label='End', marker='x')
+    ax_top.scatter(start_point.x, start_point.y, color='green', s=200, label='Start', marker='x', zorder=2, edgecolor=None, linewidth=5)
+    ax_top.scatter(end_point.x, end_point.y, color='red', s=200, label='End', marker='x', zorder=2, edgecolor=None, linewidth=5)
     ax_top.set_xlabel('Longitude')
     ax_top.set_ylabel('Latitude')
     ax_top.set_title('Top-Down View')
     points = gdf.geometry.apply(lambda geom: [geom.x, geom.y]).tolist()
-    ax_top.scatter(*zip(*points), c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none')
+    ax_top.scatter(*zip(*points), c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none', label='Flight Path')
+    ax_top.legend()
+
     plt.tight_layout()
     top_down_file = output_dir / "top_down_view.png"
     plt.savefig(top_down_file)
@@ -156,12 +159,13 @@ def plot_flight_summary(gdf, output_dir, srt_file, data):
 
     # Create frames for the rotating 3D plot
     frames = []
-    for angle in range(0, 360, 5):
+    # for angle in range(0, 360, 5):
+    for angle in tqdm(range(0, 360, 5)):
         fig = plt.figure(figsize=(15, 10))
         ax_3d = fig.add_subplot(1, 1, 1, projection='3d')
         ax_3d.scatter(gdf_utm.geometry.x, gdf_utm.geometry.y, gdf_utm.geometry.z, c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none')
-        ax_3d.scatter(start_point_utm.x, start_point_utm.y, start_point_utm.z, color='green', s=100, label='Start', marker='x')
-        ax_3d.scatter(end_point_utm.x, end_point_utm.y, end_point_utm.z, color='red', s=100, label='End', marker='x')
+        ax_3d.scatter(start_point_utm.x, start_point_utm.y, start_point_utm.z, color='green', s=100, label='Start', marker='x', edgecolor=None, linewidth=5)
+        ax_3d.scatter(end_point_utm.x, end_point_utm.y, end_point_utm.z, color='red', s=100, label='End', marker='x', edgecolor=None, linewidth=5)
         ax_3d.set_xlabel('UTM Easting (m)')
         ax_3d.set_ylabel('UTM Northing (m)')
         ax_3d.set_zlabel('Altitude (m)')
