@@ -7,3 +7,4 @@ chardet
 geopandas
 matplotlib
 contextily
+imageio

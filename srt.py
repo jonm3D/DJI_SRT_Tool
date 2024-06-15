@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import geopandas as gpd
 import contextily as ctx
-from shapely.geometry import Point, LineString
+from shapely.geometry import Point
 from collections import OrderedDict
-import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from pathlib import Path
+import imageio.v2 as imageio
+from PIL import Image
 
 def parse_srt_file(srt_file):
     data = []
@@ -113,7 +114,7 @@ def get_utm_crs(lon, lat):
     else:
         return f"327{utm_band.zfill(2)}"
 
-def plot_flight_summary(gdf, output_file, srt_file, data):
+def plot_flight_summary(gdf, output_dir, srt_file, data):
     start_point = gdf.iloc[0].geometry
     end_point = gdf.iloc[-1].geometry
     start_time = data[0]['Datetime']
@@ -124,15 +125,17 @@ def plot_flight_summary(gdf, output_file, srt_file, data):
     
     times = pd.to_datetime(gdf['Datetime'])
     norm = mcolors.Normalize(vmin=times.min().timestamp(), vmax=times.max().timestamp())
-    cmap = cm.get_cmap('viridis')
+    cmap = plt.colormaps['viridis']
 
-    fig = plt.figure(figsize=(15, 10))
+    # Transform to UTM for bottom plots
+    utm_crs = get_utm_crs(gdf.geometry.x.mean(), gdf.geometry.y.mean())
+    gdf_utm = gdf.to_crs(utm_crs)
+    start_point_utm = gpd.GeoSeries([start_point], crs=gdf.crs).to_crs(utm_crs).geometry.iloc[0]
+    end_point_utm = gpd.GeoSeries([end_point], crs=gdf.crs).to_crs(utm_crs).geometry.iloc[0]
 
-    # Suptitle
+    # Save top-down view
+    fig, ax_top = plt.subplots(figsize=(7.5, 10))
     fig.suptitle(f"Filename: {Path(srt_file).name}\nDate: {start_time.split()[0]}\nRuntime: {runtime_minutes:.2f} min\nStart Time: {start_time_12hr}", fontsize=14)
-
-    # Left plot: view from the top (lat, lon) with Esri satellite basemap
-    ax_top = fig.add_subplot(1, 2, 1)
     gdf.plot(ax=ax_top, markersize=5, color='white')
     xmin, xmax = ax_top.get_xlim()
     ymin, ymax = ax_top.get_ylim()
@@ -144,31 +147,53 @@ def plot_flight_summary(gdf, output_file, srt_file, data):
     ax_top.set_xlabel('Longitude')
     ax_top.set_ylabel('Latitude')
     ax_top.set_title('Top-Down View')
-    
-    # Plot colored path based on time
     points = gdf.geometry.apply(lambda geom: [geom.x, geom.y]).tolist()
     ax_top.scatter(*zip(*points), c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none')
-
-    # Transform to UTM for bottom plots
-    utm_crs = get_utm_crs(gdf.geometry.x.mean(), gdf.geometry.y.mean())
-    gdf_utm = gdf.to_crs(utm_crs)
-    start_point_utm = gpd.GeoSeries([start_point], crs=gdf.crs).to_crs(utm_crs).geometry.iloc[0]
-    end_point_utm = gpd.GeoSeries([end_point], crs=gdf.crs).to_crs(utm_crs).geometry.iloc[0]
-
-    # Right plot: 3D view from an oblique angle
-    ax_3d = fig.add_subplot(1, 2, 2, projection='3d')
-    ax_3d.scatter(gdf_utm.geometry.x, gdf_utm.geometry.y, gdf_utm.geometry.z, c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none')
-    ax_3d.scatter(start_point_utm.x, start_point_utm.y, start_point_utm.z, color='green', s=100, label='Start', marker='x')
-    ax_3d.scatter(end_point_utm.x, end_point_utm.y, end_point_utm.z, color='red', s=100, label='End', marker='x')
-    ax_3d.set_xlabel('UTM Easting (m)')
-    ax_3d.set_ylabel('UTM Northing (m)')
-    ax_3d.set_zlabel('Altitude (m)')
-    ax_3d.set_title('3D Flight Path')
-    ax_3d.view_init(elev=30, azim=-60)  # Oblique view angle
-
     plt.tight_layout()
-    plt.savefig(output_file)
-    plt.show()
+    top_down_file = output_dir / "top_down_view.png"
+    plt.savefig(top_down_file)
+    plt.close(fig)
+
+    # Create frames for the rotating 3D plot
+    frames = []
+    for angle in range(0, 360, 5):
+        fig = plt.figure(figsize=(15, 10))
+        ax_3d = fig.add_subplot(1, 1, 1, projection='3d')
+        ax_3d.scatter(gdf_utm.geometry.x, gdf_utm.geometry.y, gdf_utm.geometry.z, c=times.apply(lambda x: x.timestamp()), cmap=cmap, norm=norm, s=10, edgecolor='none')
+        ax_3d.scatter(start_point_utm.x, start_point_utm.y, start_point_utm.z, color='green', s=100, label='Start', marker='x')
+        ax_3d.scatter(end_point_utm.x, end_point_utm.y, end_point_utm.z, color='red', s=100, label='End', marker='x')
+        ax_3d.set_xlabel('UTM Easting (m)')
+        ax_3d.set_ylabel('UTM Northing (m)')
+        ax_3d.set_zlabel('Altitude (m)')
+        ax_3d.set_title('3D Flight Path')
+        ax_3d.view_init(elev=30, azim=angle)
+        plt.tight_layout()
+        
+        frame_file = output_dir / f"frame_{angle}.png"
+        plt.savefig(frame_file)
+        plt.close(fig)
+
+        # Merge the top-down view with the 3D plot
+        top_down_img = Image.open(top_down_file)
+        frame_img = Image.open(frame_file)
+        combined_img = Image.new('RGB', (top_down_img.width + frame_img.width, top_down_img.height))
+        combined_img.paste(top_down_img, (0, 0))
+        combined_img.paste(frame_img, (top_down_img.width, 0))
+        
+        combined_frame_file = output_dir / f"combined_frame_{angle}.png"
+        combined_img.save(combined_frame_file)
+        frames.append(imageio.imread(combined_frame_file))
+        os.remove(frame_file)
+        os.remove(combined_frame_file)
+
+    # Create GIF
+    gif_output_file = output_dir / f"{Path(srt_file).stem}_flight_summary.gif"
+    imageio.mimsave(gif_output_file, frames, fps=5)
+    
+    # Clean up frame files
+    os.remove(top_down_file)
+    
+    print(f"Flight summary plot saved as {gif_output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description="Parse DJI SRT file and extract frame information.")
@@ -182,17 +207,15 @@ def main():
 
     csv_output_file = output_dir / f"{base_name}_frame_index.csv"
     geojson_output_file = output_dir / f"{base_name}_flight_path.geojson"
-    plot_output_file = output_dir / f"{base_name}_flight_summary.png"
 
     data = parse_srt_file(srt_file)
     write_csv(data, csv_output_file)
     write_geojson(data, geojson_output_file)
     
     gdf = create_geodataframe(data)
-    plot_flight_summary(gdf, plot_output_file, srt_file, data)
+    plot_flight_summary(gdf, output_dir, srt_file, data)
     
     print(f"Data written to {csv_output_file} and {geojson_output_file}")
-    print(f"Flight summary plot saved as {plot_output_file}")
 
 if __name__ == "__main__":
     main()
