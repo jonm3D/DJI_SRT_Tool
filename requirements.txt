@@ -1,0 +1,9 @@
+# requirements.txt
+opencv
+pandas
+python-dateutil
+tqdm
+chardet
+geopandas
+matplotlib
+contextily
